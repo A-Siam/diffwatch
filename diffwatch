@@ -1,0 +1,125 @@
+#!/usr/bin/env bash
+
+set -e
+
+# Constants
+BRANCH_TABLE_FILE="./.git/branch_table.json"
+HOOK_FILE="./.git/hooks/post-commit"
+
+function usage() {
+    cat << EOU 
+Usage:
+    diffwatch help # display all available commands
+
+    diffwatch init-hook # required to use commit diffwatch hook for git commits
+
+    diffwatch create-branch <branch-name> # record the current branch as a parent branch for the new branch name
+
+    diffwatch notify-change # send notification to the main system with the diff summary
+
+    diffwatch rename-branch <new-branch-name> # rename branch so it can affect the table too
+
+EOU
+}
+
+function notify() {
+    case "$(uname -s)" in
+        Linux*)
+            notify-send "Branch difference" "$1"
+            ;;
+        Darwin*)
+            display notification "$1" with title "Branch difference"
+            ;;
+        *)
+            echo "Unsupported OS"
+            ;;
+    esac
+}
+
+function rename_branch() {
+    if [[ -z $1 ]]; then
+        echo "invalid input to rename branch"
+        exit 1
+    fi
+
+    if [[ ! -f $BRANCH_TABLE_FILE ]]; then
+        echo "branch table file not found"
+        exit 1
+    fi
+    current_branch=$(git rev-parse --abbrev-ref HEAD)
+    echo $(jq ". * {\"branches\" : { \"$1\" : .branches.\"$current_branch\"}} | del(.branches.\"$current_branch\")" "$BRANCH_TABLE_FILE") > $BRANCH_TABLE_FILE
+    git branch -M $1
+}
+
+function create_branch() {
+    if [[ -z $1 ]]; then
+        echo "invalid input to create branch"
+        exit 1
+    fi
+    current_branch=$(git rev-parse --abbrev-ref HEAD)
+    echo $(jq ".branches += { \"$1\" : \"$current_branch\" }" $BRANCH_TABLE_FILE) > $BRANCH_TABLE_FILE
+    git checkout -b $1
+}
+
+function line_notifications() {
+    current_branch=$(git rev-parse --abbrev-ref HEAD)
+    parent_branch=$(jq -r ".branches.\"$current_branch\"" $BRANCH_TABLE_FILE)
+    if [[ "$parent_branch" == "null" ]]; then
+        exit
+    fi
+    line_change=$(git diff "$parent_branch" --shortstat)
+    notify "$line_change"
+}
+
+function init_hook() {
+    touch "$HOOK_FILE"
+    chmod +x "$HOOK_FILE"
+    cat << EOF >> "$HOOK_FILE"
+$(realpath $0) notify-change
+EOF
+}
+
+function dir_init() {
+    if [[ ! -d .git ]]; then
+        read -p "Not a git repository! Do you want to initialize a new repository? (y/N) " create_git_repo
+        if [[ $create_git_repo == "y" || $create_git_repo == "Y" ]]; then
+            git init
+            git add -A 
+            git commit -m "Init: initializing repository"
+        else 
+            exit 130
+        fi
+    fi
+
+    if [[ ! -f $BRANCH_TABLE_FILE || ! -s $BRANCH_TABLE_FILE ]]; then
+        echo '{ "branches": {} }' > $BRANCH_TABLE_FILE
+    fi
+}
+
+# __main__
+
+case $1 in
+    "init-hook")
+        dir_init
+        init_hook
+        ;;
+    "create-branch")
+        dir_init
+        create_branch $2
+        ;;
+    "notify-change")
+        dir_init
+        line_notifications
+        ;;
+    "rename-branch")
+        rename_branch $2
+        ;;
+    "help")
+        usage
+        ;;
+    *)
+        echo "invalid command ($1)"
+        usage
+        exit 1
+        ;;
+esac
