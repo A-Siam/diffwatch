@@ -8,3 +8,4 @@ https://user-images.githubusercontent.com/34966791/228697209-874db7c4-3012-433a-
 ## Requirements
 - bash
 - jq
+- GNU coreutils
