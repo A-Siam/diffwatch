@@ -74,9 +74,12 @@ function line_notifications() {
 function init_hook() {
     touch "$HOOK_FILE"
     chmod +x "$HOOK_FILE"
+    cmd="$(realpath $0) notify-change"
+    if [[ "$(tail -n 1 $HOOK_FILE | tr -d '\n')" != $cmd ]]; then
     cat << EOF >> "$HOOK_FILE"
-$(realpath $0) notify-change
+$cmd
 EOF
+    fi
 }
 
 function dir_init() {
